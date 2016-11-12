@@ -1,0 +1,89 @@
+#include <windows.h>
+#include <process.h>
+#include <d3d9.h>
+#include <d3dx9.h>
+
+#pragma comment( lib, "d3d9.lib" )
+#pragma comment( lib, "d3dx9.lib" )
+
+#include "Misc.h"
+#include "Xor.h"
+#include "Address.h"
+#include "Class.h"
+#include "Esp.h"
+
+
+DWORD org_scp = 0, retES=0;
+
+__declspec(naked) DWORD __stdcall pEndScene( LPDIRECT3DDEVICE9 pDevice, CONST RECT* pSourceRect,CONST RECT* pDestRect,HWND hDestWindowOverride,CONST RGNDATA* pDirtyRegion)
+{
+	__asm 
+	{
+		MOV EDI,EDI
+		PUSH EBP
+		MOV EBP,ESP   
+		jmp retES
+	}
+}
+
+__declspec(naked) DWORD __stdcall D3DXCreateFont(DWORD A, DWORD B, DWORD C, DWORD D, DWORD E, DWORD F, DWORD G, DWORD H, DWORD I, DWORD J, DWORD K, DWORD L)
+{
+	__asm 
+	{
+		MOV EDI,EDI
+		PUSH EBP
+		MOV EBP,ESP   
+		jmp org_scp
+	}
+}
+
+HRESULT _stdcall  my_EndScene( LPDIRECT3DDEVICE9 pDevice, CONST RECT* pSourceRect,CONST RECT* pDestRect,HWND hDestWindowOverride,CONST RGNDATA* pDirtyRegion) 
+{
+	if(g_pLine == NULL ) D3DXCreateLine(pDevice, &g_pLine);
+	xxxSex(pDevice);
+	return pEndScene(pDevice, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
+}
+
+DWORD __stdcall MyD3DXCreateFont(DWORD A, DWORD B, DWORD C, DWORD D, DWORD E, DWORD F, DWORD G, DWORD H, DWORD I, DWORD J, DWORD K, DWORD L)
+{
+	DWORD thisa = *(DWORD*)A;
+	DWORD oldflagES;
+
+	DWORD ESAddress =  thisa + 68;//17*4 Present 
+	DWORD ESHook = *(DWORD*)ESAddress;
+	retES=ESHook+5; 
+
+	//ES Hook
+	VirtualProtect((LPVOID)ESHook, 5, PAGE_EXECUTE_READWRITE, &oldflagES);
+	*(PBYTE)ESHook = 0xe9;
+	*(PULONG)(ESHook+1) = (DWORD)my_EndScene- (ESHook + 5);
+
+	*(PULONG)(org_scp-5) = 0x0000008b;
+	*(PULONG)(org_scp-4) = 0xEC8B55FF;
+
+	return D3DXCreateFont(A,B,C,D,E,F,G,H,I,J,K,L); 
+}
+
+unsigned __stdcall InstallHook(LPVOID param)
+{
+	DWORD oldflag;
+	HMODULE User32 = LoadLibraryA(ed3d9_29);
+	PVOID CrackAddr = (PVOID)GetProcAddress(User32, eCreateFont);
+	VirtualProtect(CrackAddr, 5, PAGE_EXECUTE_READWRITE, &oldflag);
+	org_scp = (DWORD)CrackAddr + 5; 
+	*(PULONG)CrackAddr = 0x000000e9;
+	*(PULONG)((DWORD)CrackAddr+1) = (DWORD)MyD3DXCreateFont- ((DWORD)CrackAddr + 5);
+	return 1;
+}
+
+BOOL WINAPI DllMain(HMODULE hDll, DWORD dwReason, LPVOID lpReserved)
+{
+	if(dwReason == DLL_PROCESS_ATTACH)
+	{
+		DisableThreadLibraryCalls(hDll);
+		EraseHeaders(hDll);
+		HideModule(hDll);
+		_beginthreadex(0, 0, InstallHook, 0, 0, 0);
+	}
+	return TRUE;
+}
